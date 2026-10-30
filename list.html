@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>設備管理系統</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background-color: #f8f9fa; color: #333; }
+    .card { max-width: 800px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    h2 { margin-top: 0; color: #0d6efd; display: flex; align-items: center; gap: 8px; }
+    .btn-refresh { background: #0d6efd; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; float: right; }
+    .btn-refresh:hover { background: #0b5ed7; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #dee2e6; padding: 10px; text-align: left; }
+    th { background-color: #e9ecef; }
+    tr:nth-child(even) { background-color: #f8f9fa; }
+    .status-badge { background-color: #ffc107; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
+    .empty-msg { text-align: center; color: #6c757d; padding: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <button class="btn-refresh" onclick="loadBorrowedList()">🔄 重新整理</button>
+  <h2>📦 目前借出中的設備清單</h2>
+  
+  <div id="list-container">載入中...</div>
+</div>
+
+<script>
+  // 頁面載入完成後自動取得資料
+  window.onload = function() {
+    loadBorrowedList();
+  };
+
+  function loadBorrowedList() {
+    document.getElementById('list-container').innerHTML = "正在讀取最新資料...";
+
+    // 呼叫 GAS 後端的 getBorrowedData 函數
+    google.script.run
+      .withSuccessHandler(renderTable)
+      .withFailureHandler(function(err) {
+        document.getElementById('list-container').innerHTML = "<p style='color:red;'>讀取失敗：" + err.message + "</p>";
+      })
+      .getBorrowedData();
+  }
+
+  function renderTable(data) {
+    if (!data || data.length === 0) {
+      document.getElementById('list-container').innerHTML = "<div class='empty-msg'>目前沒有任何借出中的設備。</div>";
+      return;
+    }
+
+    let html = "<table><thead><tr>";
+    // 渲染表頭 (第一列)
+    data[0].forEach(header => {
+      html += `<th>${header}</th>`;
+    });
+    html += "</tr></thead><tbody>";
+
+    // 渲染資料列
+    for (let i = 1; i < data.length; i++) {
+      html += "<tr>";
+      data[i].forEach((cell, index) => {
+        // C 欄 (狀態) 特別標示樣式
+        if (index === 2) {
+          html += `<td><span class="status-badge">${cell}</span></td>`;
+        } else {
+          html += `<td>${cell}</td>`;
+        }
+      });
+      html += "</tr>";
+    }
+
+    html += "</tbody></table>";
+    document.getElementById('list-container').innerHTML = html;
+  }
+</script>
+
+</body>
+</html>
