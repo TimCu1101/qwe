@@ -3,77 +3,209 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>設備管理系統</title>
+  <title>設備掃描與借還管理系統</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background-color: #f8f9fa; color: #333; }
-    .card { max-width: 800px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
-    h2 { margin-top: 0; color: #0d6efd; display: flex; align-items: center; gap: 8px; }
-    .btn-refresh { background: #0d6efd; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; float: right; }
-    .btn-refresh:hover { background: #0b5ed7; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 20px; background-color: #f8f9fa; margin: 0; }
+    .card { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+    
+    /* 上方主要頁籤 (Tab) 切換 */
+    .nav-tabs { display: flex; border-bottom: 2px solid #dee2e6; margin-bottom: 20px; }
+    .tab-btn { flex: 1; padding: 12px; font-size: 16px; font-weight: bold; background: none; border: none; cursor: pointer; color: #6c757d; border-bottom: 3px solid transparent; }
+    .tab-btn.active { color: #0d6efd; border-bottom-color: #0d6efd; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 借還模式按鈕 */
+    .mode-switch { display: flex; gap: 10px; margin-bottom: 15px; }
+    .mode-btn { flex: 1; padding: 12px; font-size: 16px; font-weight: bold; border: 2px solid #0d6efd; border-radius: 8px; background: white; color: #0d6efd; cursor: pointer; transition: 0.2s; }
+    .mode-btn.active-borrow { background: #0d6efd; color: white; }
+    .mode-btn.active-return { background: #198754; border-color: #198754; color: white; }
+
+    #camera-select { margin-bottom: 15px; padding: 8px; font-size: 15px; border-radius: 6px; border: 1px solid #ccc; width: 100%; }
+    #reader { width: 100%; background: black; border-radius: 8px; overflow: hidden; }
+    #result { margin-top: 20px; font-size: 18px; font-weight: bold; color: #333; white-space: pre-wrap; line-height: 1.5; min-height: 60px; padding: 10px; border-radius: 6px; background: #f1f3f5; }
+
+    /* 清單表格樣式 */
+    .refresh-btn { background-color: #0d6efd; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 15px; }
+    .table-container { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
     th, td { border: 1px solid #dee2e6; padding: 10px; text-align: left; }
-    th { background-color: #e9ecef; }
-    tr:nth-child(even) { background-color: #f8f9fa; }
-    .status-badge { background-color: #ffc107; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
-    .empty-msg { text-align: center; color: #6c757d; padding: 20px; }
+    th { background-color: #f1f3f5; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    .status-tag { background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <button class="btn-refresh" onclick="loadBorrowedList()">🔄 重新整理</button>
-  <h2>📦 目前借出中的設備清單</h2>
-  
-  <div id="list-container">載入中...</div>
+  <!-- 主要頁籤列 -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('scan-tab')">📷 設備掃描</button>
+    <button class="tab-btn" onclick="switchTab('list-tab')">📋 借出中清單</button>
+  </div>
+
+  <!-- 分頁 1：掃描借還功能 -->
+  <div id="scan-tab" class="tab-content active">
+    <div class="mode-switch">
+      <button id="btn-borrow" class="mode-btn active-borrow" onclick="setMode('borrow')">📤 設備借用</button>
+      <button id="btn-return" class="mode-btn" onclick="setMode('return')">📥 設備歸還</button>
+    </div>
+
+    <select id="camera-select"></select>
+    <div id="reader"></div>
+    <div id="result">相機啟動中，請稍候...</div>
+  </div>
+
+  <!-- 分頁 2：借出中清單 -->
+  <div id="list-tab" class="tab-content">
+    <button class="refresh-btn" onclick="fetchBorrowedList()">🔄 重新整理清單</button>
+    <div id="list-result" class="table-container">載入中...</div>
+  </div>
 </div>
 
 <script>
-  // 頁面載入完成後自動取得資料
-  window.onload = function() {
-    loadBorrowedList();
-  };
+  const API_URL = "https://script.google.com/macros/s/AKfycbyiCh42QhXC151YoCoqWdAVH6S5UpObESQALzdN0uNcaxFljnSJRziiSuaIcEm4zwhj/exec";
+  // 從 API 網址自動擷取 Spreadsheet ID (請確保 Google 試算表共用設定已開啟「知道連結的人皆可查看」)
+  const SPREADSHEET_ID = "請替換為您的Google試算表ID"; 
 
-  function loadBorrowedList() {
-    document.getElementById('list-container').innerHTML = "正在讀取最新資料...";
+  let currentMode = 'borrow';
+  let isProcessing = false;
+  let html5QrCode = null;
+  const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-    // 呼叫 GAS 後端的 getBorrowedData 函數
-    google.script.run
-      .withSuccessHandler(renderTable)
-      .withFailureHandler(function(err) {
-        document.getElementById('list-container').innerHTML = "<p style='color:red;'>讀取失敗：" + err.message + "</p>";
-      })
-      .getBorrowedData();
+  // 切換主要分頁 (Tab)
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+    document.getElementById(tabId).classList.add('active');
+    event.target.classList.add('active');
+
+    if (tabId === 'list-tab') {
+      fetchBorrowedList();
+    }
   }
 
-  function renderTable(data) {
-    if (!data || data.length === 0) {
-      document.getElementById('list-container').innerHTML = "<div class='empty-msg'>目前沒有任何借出中的設備。</div>";
-      return;
+  // 切換借用 / 歸還模式
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('btn-borrow').className = mode === 'borrow' ? 'mode-btn active-borrow' : 'mode-btn';
+    document.getElementById('btn-return').className = mode === 'return' ? 'mode-btn active-return' : 'mode-btn';
+  }
+
+  // 掃描成功回應
+  function onScanSuccess(decodedText) {
+    if (isProcessing) return;
+    isProcessing = true;
+
+    if (decodedText.includes("text=")) {
+      decodedText = decodedText.split("text=")[1].split("&")[0];
     }
 
-    let html = "<table><thead><tr>";
-    // 渲染表頭 (第一列)
-    data[0].forEach(header => {
-      html += `<th>${header}</th>`;
-    });
-    html += "</tr></thead><tbody>";
+    const actionText = currentMode === 'borrow' ? '借用' : '歸還';
+    const resultDiv = document.getElementById('result');
+    resultDiv.style.color = "#0056b3";
+    resultDiv.innerText = `讀取到編號：${decodedText}\n正在處理${actionText}中...`;
 
-    // 渲染資料列
-    for (let i = 1; i < data.length; i++) {
-      html += "<tr>";
-      data[i].forEach((cell, index) => {
-        // C 欄 (狀態) 特別標示樣式
-        if (index === 2) {
-          html += `<td><span class="status-badge">${cell}</span></td>`;
-        } else {
-          html += `<td>${cell}</td>`;
-        }
+    fetch(`${API_URL}?id=${encodeURIComponent(decodedText)}&action=${currentMode}`)
+      .then(response => response.text())
+      .then(text => {
+        resultDiv.style.color = text.includes("成功") ? "green" : "red";
+        resultDiv.innerText = text;
+
+        setTimeout(() => {
+          isProcessing = false;
+          resultDiv.style.color = "#333";
+          resultDiv.innerText = "請對準下一個 QR Code 進行掃描...";
+        }, 3500);
+      })
+      .catch(error => {
+        resultDiv.style.color = "red";
+        resultDiv.innerText = "系統連線錯誤！";
+        setTimeout(() => { isProcessing = false; }, 3500);
       });
-      html += "</tr>";
-    }
+  }
 
-    html += "</tbody></table>";
-    document.getElementById('list-container').innerHTML = html;
+  // 啟動相機
+  function startCamera(cameraId) {
+    if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start(cameraId, config, onScanSuccess)
+      .then(() => { document.getElementById('result').innerText = "請對準 QR Code 進行掃描..."; })
+      .catch(err => { console.error(err); });
+  }
+
+  // 初始化相機
+  Html5Qrcode.getCameras().then(devices => {
+    if (devices && devices.length) {
+      const cameraSelect = document.getElementById('camera-select');
+      devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.id;
+        option.text = device.label || `相機 ${index + 1}`;
+        cameraSelect.appendChild(option);
+      });
+
+      startCamera(cameraSelect.value);
+
+      cameraSelect.addEventListener('change', () => {
+        html5QrCode.stop().then(() => {
+          startCamera(cameraSelect.value);
+        });
+      });
+    }
+  }).catch(err => {
+    document.getElementById('result').innerText = "無法取得相機權限。";
+  });
+
+  // 讀取「借出中」清單
+  function fetchBorrowedList() {
+    const listDiv = document.getElementById('list-result');
+    listDiv.innerText = "讀取資料中...";
+
+    // 透過 Google Visualization API 直接讀取試算表內容
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=Equipment_List`;
+
+    fetch(gvizUrl)
+      .then(res => res.text())
+      .then(data => {
+        // 解析 GViz JSON 回應
+        const json = JSON.parse(data.substring(47, data.length - 2));
+        const rows = json.table.rows;
+
+        let tableHtml = `<table><thead><tr><th>編號</th><th>設備名稱</th><th>狀態</th><th>廠牌</th></tr></thead><tbody>`;
+        let count = 0;
+
+        rows.forEach(row => {
+          const cells = row.c;
+          if (cells && cells[2] && cells[2].v === "借出中") {
+            count++;
+            const id = cells[0] ? cells[0].v : "";
+            const name = cells[1] ? cells[1].v : "";
+            const status = cells[2] ? cells[2].v : "";
+            const brand = cells[4] ? cells[4].v : "";
+
+            tableHtml += `<tr>
+              <td>${id}</td>
+              <td>${name}</td>
+              <td><span class="status-tag">${status}</span></td>
+              <td>${brand}</td>
+            </tr>`;
+          }
+        });
+
+        tableHtml += `</tbody></table>`;
+
+        if (count === 0) {
+          listDiv.innerHTML = "<p style='color:#6c757d;'>目前沒有借出中的設備。</p>";
+        } else {
+          listDiv.innerHTML = tableHtml;
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        listDiv.innerHTML = "<p style='color:red;'>無法取得清單，請確認試算表共用權限是否已開啟「知道連結的人皆可查看」。</p>";
+      });
   }
 </script>
 
